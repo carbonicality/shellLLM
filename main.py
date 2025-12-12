@@ -268,6 +268,28 @@ class UI:
             self.draw_input()
         self.status_msg = "Ready"
         self.draw_input()
+    
+    def handle_sinput(self):
+        self.status_msg = "arrow keys: navigate chats, enter: select, n: new, d: delete, q: quit"
+        self.draw_input()
+        key = self.stdscr.getch()
+        if key == curses.KEY_UP:
+            if self.chat_mgr.cur_chat_idx > 0:
+                self.chat_mgr.cur_chat_idx -= 1
+                self.chat_mgr.save_chats()
+                return 'switch'
+        elif key == curses.KEY_DOWN:
+            if self.chat_mgr.cur_chat_idx < len(self.chat_mgr.chats) -1:
+                self.chat_mgr.cur_chat_idx += 1
+                self.chat_mgr.save_chats()
+                return 'switch'
+        elif key == ord('n'):
+            return 'new'
+        elif key == ord('d'):
+            return 'delete'
+        elif key == ord('q'):
+            return 'quit'
+        return None
 
 class chatMgr:
     def __init__(self):
@@ -352,7 +374,38 @@ def main_tui(stdscr):
         stdscr.getch()
         return
     ui.refresh_all()
+    icm = False ## icm = in chat mode
     while True:
+        if icm:
+            action = ui.handle_sinput()
+            if action == 'switch':
+                curr_chat = chat_mgr.get_cur_chat()
+                chat.convo_history = curr_chat.get('messages',[])
+                ui.current_res = ""
+                for msg in reversed(chat.convo_history):
+                    if msg['role'] == 'assistant':
+                        ui.current_res = msg['content']
+                        break
+                ui.status_msg = "switched chat"
+                ui.refresh_all()
+            elif action == 'new':
+                chat_mgr.new_chat()
+                chat.convo_history = []
+                ui.current_res = ""
+                ui.status_msg = "new chat created"
+                ui.refresh_all()
+            elif action == 'delete':
+                if chat_mgr.del_cur_chat():
+                    curr_chat = chat_mgr.get_cur_chat()
+                    chat.convo_history = curr_chat.get('messages', [])
+                    ui.current_res = ""
+                    ui.status_msg = "chat deleted"
+                else:
+                    ui.status_msg = "cannot/couldn't delete last chat"
+                ui.refresh_all()
+            elif action == 'quit':
+                break
+            continue
         user_input = ui.get_input()
         if user_input is None:
             break
@@ -360,6 +413,11 @@ def main_tui(stdscr):
             continue
         if user_input.lower() in ['quit', 'exit']:
             break
+        if user_input.lower() == 'nav':
+            icm = True
+            ui.status_msg = "nav mode - use arrow keys"
+            ui.refresh_all()
+            continue
         if user_input.lower() == 'clear':
             chat.clear_hist()
             ui.current_res = ""
@@ -376,15 +434,15 @@ def main_tui(stdscr):
         if user_input.lower() == 'd':
             if chat_mgr.del_cur_chat():
                 curr_chat = chat_mgr.get_cur_chat()
-                chat.convo_history = curr_chat.get('messages', [])
+                chat.convo_history = curr_chat.get('messages',[])
                 ui.current_res = ""
                 ui.status_msg = "chat deleted"
             else:
-                ui.status_msg = "cannot delete last chat"
+                ui.status_msg = "cannot/couldn't delete last chat"
             ui.refresh_all()
             continue
         try:
-            res_gen = chat.send_msg(user_input, stream=True)
+            res_gen = chat.send_msg(user_input,stream=True)
             ui.show_streaming(res_gen)
             chat_mgr.upd_cur_chat(chat.convo_history)
             ui.refresh_all()
