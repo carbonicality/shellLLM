@@ -190,14 +190,13 @@ class UI:
         except curses.error:
             pass
 
-    
     def draw_res(self):
         self.res_win.clear()
         self.res_win.border()
         title = " response"
         self.res_win.addstr(0,2,title,curses.color_pair(3)|curses.A_BOLD)
         if self.current_res:
-            max_width = (self.width * 2)//3-4
+            max_width = (self.width * 2)//3 - 4
             lines = []
             for pg in self.current_res.split('\n'):
                 if pg:
@@ -205,12 +204,12 @@ class UI:
                     lines.extend(wrapped)
                 else:
                     lines.append("")
-            max_y = self.res_win.getmaxyx()[0]-2
-            start =self.scroll_offset
+            max_y = self.res_win.getmaxyx()[0] -2
+            start = self.scroll_offset
             end = min(start + max_y, len(lines))
-            y=1
+            y = 1
             for line in lines[start:end]:
-                if y>= max_y + 1:
+                if y >= max_y + 1:
                     break
                 try:
                     self.res_win.addstr(y,2,line[:max_width],curses.color_pair(5))
@@ -218,17 +217,18 @@ class UI:
                 except curses.error:
                     pass
             if len(lines) > max_y:
-                scroll_info = f"{start+1}-{end}/{len(lines)} "
+                scroll_info = f" {start+1}-{end}/{len(lines)} "
                 try:
-                    self.res_win.addstr(0,self.res_win.getmaxyx()[1]-len(scroll_info) - 2, scroll_info, curses.color_pair(4)|curses.A_DIM)
+                    self.res_win.addstr(0,self.res_win.getmaxyx()[1] - len(scroll_info) -2, scroll_info, curses.color_pair(4) | curses.A_DIM)
                 except curses.error:
                     pass
-            else:
-                try:
-                    self.res_win.addstr(2,2,"waiting for input...",curses.color_pair(5)|curses.A_DIM)
-                except:
-                    pass
-            self.res_win.refresh()
+        else:
+            try:
+                self.res_win.addstr(2,2,"waiting for input...",curses.color_pair(5)|curses.A_DIM)
+            except curses.error:
+                pass
+        self.res_win.refresh()
+
     
     def handle_scroll(self,direction):
         if not self.current_res:
@@ -247,6 +247,8 @@ class UI:
             self.scroll_offset = max(0,self.scroll_offset -1)
         elif direction == 'down':
             self.scroll_offset = min(max_scroll,self.scroll_offset + 1)
+        elif direction == 'pageup':
+            self.scroll_offset = max(0,self.scroll_offset - max_y)
         elif direction == 'pagedown':
             self.scroll_offset = min(max_scroll,self.scroll_offset + max_y)
         elif direction == 'home':
@@ -303,8 +305,8 @@ class UI:
         self.draw_input()
     
     def handle_sinput(self):
-        self.status_msg = "arrow keys: navigate chats, enter: select, n: new, d: delete, q: quit"
-        self.draw_input()
+        #self.status_msg = "arrow keys: navigate chats, ESC: exit nav mode, enter: select, n: new, d: delete, q: quit"
+        #self.draw_input()
         key = self.stdscr.getch()
         if key == curses.KEY_UP:
             if self.chat_mgr.cur_chat_idx > 0:
@@ -316,10 +318,30 @@ class UI:
                 self.chat_mgr.cur_chat_idx += 1
                 self.chat_mgr.save_chats()
                 return 'switch'
+        elif key == ord('j') or key == ord('J'):
+            self.handle_scroll('down')
+            return 'scroll'
+        elif key == ord('k') or key == ord('K'):
+            self.handle_scroll('up')
+            return 'scroll'
+        elif key == ord('w') or key == ord('W'):
+            self.handle_scroll('pageup')
+            return 'scroll'
+        elif key == ord('s') or key == ord('S'):
+            self.handle_scroll('pagedown')
+            return 'scroll'
+        elif key == ord('g'):
+            self.handle_scroll('home')
+            return 'scroll'
+        elif key == ord('G'):
+            self.handle_scroll('end')
+            return 'scroll'
         elif key == ord('n'):
             return 'new'
         elif key == ord('d'):
             return 'delete'
+        elif key == 27:
+            return 'exit_nav'
         elif key == ord('q'):
             return 'quit'
         return None
@@ -410,7 +432,7 @@ def main_tui(stdscr):
     icm = False ## icm = in chat mode
     while True:
         if icm:
-            ui.status_msg = "arrow keys: navigate, n: new, d: delete, q: quit"
+            ui.status_msg = "up/down arrow keys: nav chats, j/k: scroll, w/s: page, g/G: top/bottom, n: new, d: del, ESC: exit, q: quit"
             ui.refresh_all()
             action = ui.handle_sinput()
             if action == 'switch':
@@ -441,32 +463,14 @@ def main_tui(stdscr):
                 else:
                     ui.status_msg = "cannot/couldn't delete last chat"
                 ui.refresh_all()
+            elif action == 'exit_nav':
+                icm = False
+                ui.status_msg = "exited nav mode"
+                ui.refresh_all()
+            elif action == 'scroll':
+                ui.refresh_all()
             elif action == 'quit':
                 break
-            continue
-        ui.stdscr.nodelay(True)
-        ui.status_msg = "j/k: scroll, w/s: page, 'nav': chats"
-        ui.draw_input()
-        key = ui.stdscr.getch()
-        if key == ord('j') or key == ord('J'):
-            ui.handle_scroll('down')
-            ui.stdscr.nodelay(False)
-            continue
-        elif key == ord('k') or key == ord('K'):
-            ui.handle_scroll('up')
-            ui.stdscr.nodelay(False)
-            continue
-        elif key == ord('w') or key == ord('W'):
-            ui.handle_scroll('pageup')
-            ui.stdscr.nodelay(False)
-            continue
-        elif key == curses.KEY_HOME or key == ord('g'):
-            ui.handle_scroll('home')
-            ui.stdscr.nodelay(False)
-            continue
-        elif key == curses.KEY_END or key == ord('G'):
-            ui.handle_scroll('end')
-            ui.stdscr.nodelay(False)
             continue
 
         ui.stdscr.nodelay(False)
