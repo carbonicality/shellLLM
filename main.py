@@ -657,6 +657,8 @@ def main_tui(stdscr):
             curses.napms(2000)
 
 def main():
+    # lil fix to stop a delay from switching from nav mode to normal mode
+    os.environ.setdefault('ESCDELAY', '25')
     try:
         curses.wrapper(main_tui)
     except KeyboardInterrupt:
