@@ -133,6 +133,7 @@ class UI:
         self.current_res = ""
         self.input_buffer = ""
         self.status_msg = "Ready"
+        self.scroll_offset = 0
         # curses stuff, AI helped me a bit with this as I'm quite new to curses
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
@@ -194,33 +195,65 @@ class UI:
         self.res_win.clear()
         self.res_win.border()
         title = " response"
-        self.res_win.addstr(0,2,title,curses.color_pair(3) | curses.A_BOLD)
+        self.res_win.addstr(0,2,title,curses.color_pair(3)|curses.A_BOLD)
         if self.current_res:
-            max_width = (self.width * 2) // 3 - 4
+            max_width = (self.width * 2)//3-4
             lines = []
             for pg in self.current_res.split('\n'):
                 if pg:
-                    wrapped = textwrap.wrap(pg, width=max_width)
+                    wrapped = textwrap.wrap(pg,width=max_width)
                     lines.extend(wrapped)
                 else:
                     lines.append("")
-            y = 1
-            max_y = self.res_win.getmaxyx()[0] -2
-            start = max(0, len(lines) - max_y)
-            for line in lines[start:]:
-                if y >= max_y:
+            max_y = self.res_win.getmaxyx()[0]-2
+            start =self.scroll_offset
+            end = min(start + max_y, len(lines))
+            y=1
+            for line in lines[start:end]:
+                if y>= max_y + 1:
                     break
                 try:
-                    self.res_win.addstr(y,2,line[:max_width], curses.color_pair(5))
+                    self.res_win.addstr(y,2,line[:max_width],curses.color_pair(5))
                     y += 1
                 except curses.error:
                     pass
-        else:
-            try:
-                self.res_win.addstr(2,2,"waiting for input...", curses.color_pair(5) | curses.A_DIM)
-            except curses.error:
-                pass
-        self.res_win.refresh()#
+            if len(lines) > max_y:
+                scroll_info = f"{start+1}-{end}/{len(lines)} "
+                try:
+                    self.res_win.addstr(0,self.res_win.getmaxyx()[1]-len(scroll_info) - 2, scroll_info, curses.color_pair(4)|curses.A_DIM)
+                except curses.error:
+                    pass
+            else:
+                try:
+                    self.res_win.addstr(2,2,"waiting for input...",curses.color_pair(5)|curses.A_DIM)
+                except:
+                    pass
+            self.res_win.refresh()
+    
+    def handle_scroll(self,direction):
+        if not self.current_res:
+            return
+        max_width = (self.width * 2)//3 - 4
+        lines = []
+        for pg in self.current_res.split('\n'):
+            if pg:
+                wrapped = textwrap.wrap(pg,width=max_width)
+                lines.extend(wrapped)
+            else:
+                lines.append(wrapped)
+        max_y = self.res_win.getmaxyx()[0]-2
+        max_scroll = max(0,len(lines) - max_y)
+        if direction == 'up':
+            self.scroll_offset = max(0,self.scroll_offset -1)
+        elif direction == 'down':
+            self.scroll_offset = min(max_scroll,self.scroll_offset + 1)
+        elif direction == 'pagedown':
+            self.scroll_offset = min(max_scroll,self.scroll_offset + max_y)
+        elif direction == 'home':
+            self.scroll_offset = 0
+        elif direction == 'end':
+            self.scroll_offset = max_scroll
+        self.draw_res()
     
     def draw_input(self):
         self.input_win.clear()
@@ -377,6 +410,8 @@ def main_tui(stdscr):
     icm = False ## icm = in chat mode
     while True:
         if icm:
+            ui.status_msg = "arrow keys: navigate, n: new, d: delete, q: quit"
+            ui.refresh_all()
             action = ui.handle_sinput()
             if action == 'switch':
                 curr_chat = chat_mgr.get_cur_chat()
@@ -386,19 +421,22 @@ def main_tui(stdscr):
                     if msg['role'] == 'assistant':
                         ui.current_res = msg['content']
                         break
+                ui.scroll_offset = 0
                 ui.status_msg = "switched chat"
                 ui.refresh_all()
             elif action == 'new':
                 chat_mgr.new_chat()
                 chat.convo_history = []
                 ui.current_res = ""
+                ui.scroll_offset = 0
                 ui.status_msg = "new chat created"
                 ui.refresh_all()
             elif action == 'delete':
                 if chat_mgr.del_cur_chat():
                     curr_chat = chat_mgr.get_cur_chat()
-                    chat.convo_history = curr_chat.get('messages', [])
+                    chat.convo_history = curr_chat.get('messages',[])
                     ui.current_res = ""
+                    ui.scroll_offset = 0
                     ui.status_msg = "chat deleted"
                 else:
                     ui.status_msg = "cannot/couldn't delete last chat"
@@ -406,12 +444,38 @@ def main_tui(stdscr):
             elif action == 'quit':
                 break
             continue
+        ui.stdscr.nodelay(True)
+        ui.status_msg = "j/k: scroll, w/s: page, 'nav': chats"
+        ui.draw_input()
+        key = ui.stdscr.getch()
+        if key == ord('j') or key == ord('J'):
+            ui.handle_scroll('down')
+            ui.stdscr.nodelay(False)
+            continue
+        elif key == ord('k') or key == ord('K'):
+            ui.handle_scroll('up')
+            ui.stdscr.nodelay(False)
+            continue
+        elif key == ord('w') or key == ord('W'):
+            ui.handle_scroll('pageup')
+            ui.stdscr.nodelay(False)
+            continue
+        elif key == curses.KEY_HOME or key == ord('g'):
+            ui.handle_scroll('home')
+            ui.stdscr.nodelay(False)
+            continue
+        elif key == curses.KEY_END or key == ord('G'):
+            ui.handle_scroll('end')
+            ui.stdscr.nodelay(False)
+            continue
+
+        ui.stdscr.nodelay(False)
         user_input = ui.get_input()
         if user_input is None:
             break
         if not user_input:
             continue
-        if user_input.lower() in ['quit', 'exit']:
+        if user_input.lower() in ['quit','exit']:
             break
         if user_input.lower() == 'nav':
             icm = True
@@ -421,6 +485,7 @@ def main_tui(stdscr):
         if user_input.lower() == 'clear':
             chat.clear_hist()
             ui.current_res = ""
+            ui.scroll_offset = 0
             ui.status_msg = "history cleared"
             ui.refresh_all()
             continue
@@ -428,6 +493,7 @@ def main_tui(stdscr):
             chat_mgr.new_chat()
             chat.convo_history = []
             ui.current_res = ""
+            ui.scroll_offset = 0
             ui.status_msg = "new chat created"
             ui.refresh_all()
             continue
@@ -436,6 +502,7 @@ def main_tui(stdscr):
                 curr_chat = chat_mgr.get_cur_chat()
                 chat.convo_history = curr_chat.get('messages',[])
                 ui.current_res = ""
+                ui.scroll_offset = 0
                 ui.status_msg = "chat deleted"
             else:
                 ui.status_msg = "cannot/couldn't delete last chat"
@@ -444,6 +511,7 @@ def main_tui(stdscr):
         try:
             res_gen = chat.send_msg(user_input,stream=True)
             ui.show_streaming(res_gen)
+            ui.scroll_offset = 0
             chat_mgr.upd_cur_chat(chat.convo_history)
             ui.refresh_all()
         except Exception as e:
