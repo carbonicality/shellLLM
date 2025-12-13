@@ -134,17 +134,24 @@ class UI:
         self.input_buffer = ""
         self.status_msg = "Ready"
         self.scroll_offset = 0
+
+        self.show_help = False
+        self.show_model_sel = False
+        self.model_in_buffer = ""
         # curses stuff, AI helped me a bit with this as I'm quite new to curses
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
         curses.init_pair(3, curses.COLOR_BLUE, curses.COLOR_BLACK)
         curses.init_pair(4, curses.COLOR_YELLOW, curses.COLOR_BLACK)
         curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLACK)
+        curses.init_pair(6, curses.COLOR_MAGENTA,curses.COLOR_BLACK)
         self.height, self.width = stdscr.getmaxyx()
         self.header_win = curses.newwin(3,self.width, 0,0)
         self.chats_win = curses.newwin(self.height - 6, self.width // 3, 3, 0)
         self.input_win = curses.newwin(3, self.width, self.height - 3,0)
         self.res_win = curses.newwin(self.height - 6, (self.width * 2) // 3, 3,self.width //3)
+        self.help_win = curses.newwin(15,50,(self.height - 15)//2, (self.width - 50)//2)
+        self.model_win = curses.newwin(7,60,(self.height - 7) // 2, (self.width - 60)//2)
         self.res_win.scrollok(True)
         self.chats_win.scrollok(True)
 
@@ -229,6 +236,57 @@ class UI:
                 pass
         self.res_win.refresh()
 
+    def draw_model_sel(self):
+        if not self.show_model_sel:
+            return
+        self.model_win.clear()
+        self.model_win.border()
+        self.model_win.attron(curses.color_pair(6) | curses.A_BOLD)
+        self.model_win.addstr(0,2," select model ", curses.color_pair(6))
+        self.model_win.attroff(curses.color_pair(6) | curses.A_BOLD)
+        try:
+            self.model_win.addstr(2,2,"enter model name:", curses.color_pair(5))
+            self.model_win.addstr(3,2,"> ", curses.color_pair(2) | curses.A_BOLD)
+            display_text = self.model_in_buffer if self.model_in_buffer else "openai/gpt-5.1"
+            text_attr = curses.color_pair(5) if self.model_in_buffer else curses.color_pair(5) | curses.A_DIM
+            self.model_win.addstr(3,4,display_text[:52],text_attr)
+            self.model_win.addstr(5,2,"press ENTER to confirm, ESC to cancel", curses.color_pair(4) | curses.A_DIM)
+        except curses.error:
+            pass
+        self.model_win.refresh()
+    
+    def get_model_in(self):
+        self.model_in_buffer = ""
+        curses.curs_set(1)
+        self.model_win.nodelay(False)
+        try:
+            while True:
+                self.model_win.move(3,4)
+                self.model_win.addstr(3,4," " * 52)
+                self.model_win.move(3,4)
+                if self.model_in_buffer:
+                    self.model_win.addstr(3,4,self.model_in_buffer[:52],curses.color_pair(5))
+                else:
+                    self.model_win.addstr(3,4,"openai/gpt-5.1",curses.color_pair(5) | curses.A_DIM)
+                cursor_pos = min(len(self.model_in_buffer),52)
+                self.model_win.move(3,4 + cursor_pos)
+                self.model_win.refresh()
+                ch = self.model_win.getch()
+                if ch == 27:
+                    return None
+                elif ch == 10 or ch == curses.KEY_ENTER:
+                    return self.model_in_buffer if self.model_in_buffer else None
+                elif ch == curses.KEY_BACKSPACE or ch == 127 or ch == 8:
+                    if self.model_in_buffer:
+                        self.model_in_buffer = self.model_in_buffer[:-1]
+                elif 32 <= ch <= 126:
+                    if len(self.model_in_buffer) < 52:
+                        self.model_in_buffer += chr(ch)
+        except KeyboardInterrupt:
+            return None
+        finally:
+            curses.curs_set(0)
+            self.model_in_buffer = ""
     
     def handle_scroll(self,direction):
         if not self.current_res:
@@ -273,14 +331,21 @@ class UI:
         self.input_win.refresh()
     
     def refresh_all(self):
+        self.stdscr.clear()
+        self.stdscr.noutrefresh()
         self.draw_h()
         self.draw_chats()
         self.draw_res()
         self.draw_input()
+        if self.show_help:
+            self.draw_help()
+        if self.show_model_sel:
+            self.draw_model_sel()
+        curses.doupdate()
     
     def get_input(self):
         self.input_buffer = ""
-        self.status_msg = "type message (enter to send, ctrl+c to quit)"
+        self.status_msg = "type message, or type 'nav' for navigation mode. type 'h' whilst in nav mode for help."
         self.draw_input()
         curses.echo()
         curses.curs_set(1)
@@ -336,8 +401,13 @@ class UI:
         elif key == ord('G'):
             self.handle_scroll('end')
             return 'scroll'
+        elif key == ord('h') or key == ord('H'):
+            self.show_help = not self.show_help
+            return 'toggle_help'
         elif key == ord('n'):
             return 'new'
+        elif key == ord('m') or key == ord('M'):
+            return 'toggle_model'
         elif key == ord('d'):
             return 'delete'
         elif key == 27:
@@ -345,6 +415,44 @@ class UI:
         elif key == ord('q'):
             return 'quit'
         return None
+    
+    def draw_help(self):
+        if not self.show_help:
+            return
+        self.help_win.clear()
+        self.help_win.border()
+        self.help_win.attron(curses.color_pair(6) | curses.A_BOLD)
+        self.help_win.addstr(0,2," HELP - press 'h' to toggle", curses.color_pair(6))
+        self.help_win.attroff(curses.color_pair(6) | curses.A_BOLD)
+        help_txt = [ # fancy shmancy am i right
+            "normal mode:",
+            " - type your message and press enter",
+            " - type 'nav' to enter navigation mode",
+            " - type 'clear' to clear chat history",
+            " - type 'model' to change model",
+            "",
+            "navigation mode:",
+            " - up/down arrow keys: navigate chats",
+            " - j/k keys: scroll response by line",
+            " - w/s keys: scroll response by page",
+            " - g/G keys: jump to top/bottom of response",
+            " - n: new chat",
+            " - m: change model",
+            " - d: delete selected chat",
+            " - ESC: exit nav mode",
+            " - q: quit shellLLM"
+        ]
+        for i, line in enumerate(help_txt, start=1):
+            if i > 13:
+                break
+            try:
+                if line and not line.startswith(" "):
+                    self.help_win.addstr(i,2,line,curses.color_pair(2)|curses.A_BOLD)
+                else:
+                    self.help_win.addstr(i,2,line,curses.color_pair(5))
+            except curses.error:
+                pass
+        self.help_win.refresh()
 
 class chatMgr:
     def __init__(self):
@@ -432,7 +540,7 @@ def main_tui(stdscr):
     icm = False ## icm = in chat mode
     while True:
         if icm:
-            ui.status_msg = "up/down arrow keys: nav chats, j/k: scroll, w/s: page, g/G: top/bottom, n: new, d: del, ESC: exit, q: quit"
+            ui.status_msg = "nav mode - press h for help, esc to escape"
             ui.refresh_all()
             action = ui.handle_sinput()
             if action == 'switch':
@@ -466,6 +574,19 @@ def main_tui(stdscr):
             elif action == 'exit_nav':
                 icm = False
                 ui.status_msg = "exited nav mode"
+                ui.refresh_all()
+            elif action == 'toggle_help':
+                ui.refresh_all()
+            elif action == 'toggle_model':
+                ui.show_model_sel = True
+                ui.refresh_all()
+                new_mdl = ui.get_model_in()
+                ui.show_model_sel = False 
+                if new_mdl:
+                    chat.model = new_mdl
+                    ui.status_msg = f"model changed to: {new_mdl}"
+                else:
+                    ui.status_msg = "model change cancelled"
                 ui.refresh_all()
             elif action == 'scroll':
                 ui.refresh_all()
@@ -510,6 +631,18 @@ def main_tui(stdscr):
                 ui.status_msg = "chat deleted"
             else:
                 ui.status_msg = "cannot/couldn't delete last chat"
+            ui.refresh_all()
+            continue
+        if user_input.lower() == 'model':
+            ui.show_model_sel = True
+            ui.refresh_all()
+            new_mdl = ui.get_model_in()
+            ui.show_model_sel = False 
+            if new_mdl:
+                chat.model = new_mdl
+                ui.status_msg = f"model changed to: {new_mdl}"
+            else:
+                ui.status_msg = "model change cancelled"
             ui.refresh_all()
             continue
         try:
