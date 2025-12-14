@@ -2,8 +2,11 @@
 i'll add actual readme stuff here eventually
 
 ## online demo:
-try the online demo at: https://studious-winner-q7x9jp66qggj3xgrq.github.dev/
-once you go to the codespace, just press Ctrl+J and make sure that the terminal **takes up the whole screen, or else curses will not work correctly.** you can resize it if needed.
+try the online demo at:
+https://replit.com/@carbon06/shellLLM
+
+make sure that, when you run it, you click "+ Tools and files", use the "Shell" option, and type:
+`python3 main.py`
 
 ## usage
 first clone the repo:

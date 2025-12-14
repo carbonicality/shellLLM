@@ -907,26 +907,6 @@ def main_tui(stdscr):
             curses.napms(2000)
 
 def main():
-    """# try to fix replit erroring out on API KEY prompt
-    load_env()
-    if not os.environ.get("API_KEY"):
-        print("API_KEY not found in environment or .env file", flush=True)
-        print("\nplease enter your API key:",flush=True)
-        sys.stdout.flush()
-        try:
-            api_key = input("> ").strip()
-        except (EOFError,KeyboardInterrupt):
-            print("\nno API key provided. exiting...",flush=True)
-            return
-        if not api_key:
-            print("no api key provided. exiting...", flush=True)
-            return
-    os.environ.setdefault('ESCDELAY','25')
-    try:
-        curses.wrapper(main_tui)
-    except KeyboardInterrupt:
-        pass
-    print("\nexiting shellLLM",flush=True)"""
     # lil fix to stop a delay from switching from nav mode to normal mode
     os.environ.setdefault('ESCDELAY', '25')
     try:
