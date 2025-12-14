@@ -10,23 +10,25 @@ then cd into it:
 ```bash
 cd shellLLM
 ```
-then, create a file called '.env' in the shellLLM folder with your API KEY:
-```
-touch .env && echo "API_KEY={your api key}" > .env
-```
-or, alternatively, just export your API KEY:
+and run the file:
 ```bash
-export API_KEY={your api key}
+python3 main.py
 ```
 
 ### another way to use it
 if you're trying to run this from something like ChromeOS VT2, try this:
-export your API key:
-```bash
-export API_KEY={your api key}
-```
-and then run the file directly:
 ```bash
 python3 <(curl https://raw.githubusercontent.com/carbonicality/shellLLM/main/main.py)
 ```
 you might need to do it this way if you have a Read-only file system, like how ChromeOS does.
+
+### if you want to use a .env or environment variable:
+if you want to use a .env file, cd into the shellLLM directory and:
+```bash
+touch .env && echo "API_KEY={your api key}" > .env
+```
+alternatively, if you want to use an environment variable:
+```bash
+export API_KEY={your api key}
+```
+this will stop it from prompting you to enter your API KEY on launch.
