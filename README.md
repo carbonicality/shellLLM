@@ -19,6 +19,7 @@ or, alternatively, just export your API KEY:
 export API_KEY={your api key}
 ```
 
+### another way to use it
 if you're trying to run this from something like ChromeOS VT2, try this:
 export your API key:
 ```bash
