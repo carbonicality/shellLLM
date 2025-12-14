@@ -159,8 +159,13 @@ class UI:
         self.header_win.clear()
         self.header_win.attron(curses.color_pair(1) | curses.A_BOLD)
         title = "shellLLM"
-        self.header_win.addstr(1, (self.width - len(title)) // 2, title)
+        self.header_win.addstr(1,(self.width - len(title)) // 2,title)
         self.header_win.attroff(curses.color_pair(1) | curses.A_BOLD)
+        mtxt = f"model: {self.chat.model}"
+        try:
+            self.header_win.addstr(1,self.width - len(mtxt) - 2, mtxt, curses.color_pair(4))
+        except curses.error:
+            pass
         self.header_win.border()
         self.header_win.refresh()
     
@@ -345,7 +350,7 @@ class UI:
     
     def get_input(self):
         self.input_buffer = ""
-        self.status_msg = "type a message and press enter, or type 'nav' to enter navigation mode. press 'h' in navigation mode for help."
+        self.status_msg = "type a message and press enter, or type '::nav' to enter navigation mode. press 'h' in navigation mode for help."
         max_in_width = self.width - 10
         view_offset = 0
         auto_scroll = True
@@ -483,9 +488,11 @@ class UI:
         help_txt = [ # fancy shmancy am i right
             "normal mode:",
             " - type your message and press enter",
-            " - type 'nav' to enter navigation mode",
-            " - type 'clear' to clear chat history",
-            " - type 'model' to change model",
+            " - type '::nav' to enter navigation mode",
+            " - type '::clear' to clear chat history",
+            " - type '::model' to change model"
+            " - type '::n' to make a new chat",
+            " - type '::d' to delete the selected chat",
             "",
             "navigation mode:",
             " - up/down arrow keys: navigate chats",
@@ -629,6 +636,8 @@ def main_tui(stdscr):
                 ui.refresh_all()
             elif action == 'exit_nav':
                 icm = False
+                ui.show_help = False
+                ui.show_model_sel = False
                 ui.status_msg = "exited nav mode"
                 ui.refresh_all()
             elif action == 'toggle_help':
@@ -658,19 +667,19 @@ def main_tui(stdscr):
             continue
         if user_input.lower() in ['quit','exit']:
             break
-        if user_input.lower() == 'nav':
+        if user_input.lower() == '::nav':
             icm = True
             ui.status_msg = "nav mode - use arrow keys"
             ui.refresh_all()
             continue
-        if user_input.lower() == 'clear':
+        if user_input.lower() == '::clear':
             chat.clear_hist()
             ui.current_res = ""
             ui.scroll_offset = 0
             ui.status_msg = "history cleared"
             ui.refresh_all()
             continue
-        if user_input.lower() == 'n':
+        if user_input.lower() == '::n':
             chat_mgr.new_chat()
             chat.convo_history = []
             ui.current_res = ""
@@ -678,7 +687,7 @@ def main_tui(stdscr):
             ui.status_msg = "new chat created"
             ui.refresh_all()
             continue
-        if user_input.lower() == 'd':
+        if user_input.lower() == '::d':
             if chat_mgr.del_cur_chat():
                 curr_chat = chat_mgr.get_cur_chat()
                 chat.convo_history = curr_chat.get('messages',[])
@@ -689,7 +698,7 @@ def main_tui(stdscr):
                 ui.status_msg = "cannot/couldn't delete last chat"
             ui.refresh_all()
             continue
-        if user_input.lower() == 'model':
+        if user_input.lower() == '::model':
             ui.show_model_sel = True
             ui.refresh_all()
             new_mdl = ui.get_model_in()
