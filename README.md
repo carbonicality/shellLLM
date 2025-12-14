@@ -1,6 +1,10 @@
 # shellLLM
 i'll add actual readme stuff here eventually
 
+## online demo:
+try the online demo at: https://studious-winner-q7x9jp66qggj3xgrq.github.dev/
+once you go to the codespace, just press Ctrl+J and make sure that the terminal **takes up the whole screen, or else curses will not work correctly.** you can resize it if needed.
+
 ## usage
 first clone the repo:
 ```bash
