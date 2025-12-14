@@ -138,6 +138,10 @@ class UI:
         self.show_help = False
         self.show_model_sel = False
         self.model_in_buffer = ""
+
+        self.show_search = False
+        self.search_in_buffer = ""
+        self.search_results = []
         # curses stuff, AI helped me a bit with this as I'm quite new to curses
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
@@ -146,12 +150,15 @@ class UI:
         curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLACK)
         curses.init_pair(6, curses.COLOR_MAGENTA,curses.COLOR_BLACK)
         self.height, self.width = stdscr.getmaxyx()
+
         self.header_win = curses.newwin(3,self.width, 0,0)
         self.chats_win = curses.newwin(self.height - 6, self.width // 3, 3, 0)
         self.input_win = curses.newwin(3, self.width, self.height - 3,0)
         self.res_win = curses.newwin(self.height - 6, (self.width * 2) // 3, 3,self.width //3)
-        self.help_win = curses.newwin(22,50,(self.height - 22)//2, (self.width - 50)//2)
+        self.help_win = curses.newwin(22,60,(self.height - 22)//2, (self.width - 60)//2)
         self.model_win = curses.newwin(7,60,(self.height - 7) // 2, (self.width - 60)//2)
+        self.search_win = curses.newwin(20,70,(self.height - 20) // 2, (self.width - 70)//2)
+
         self.res_win.scrollok(True)
         self.chats_win.scrollok(True)
 
@@ -293,6 +300,110 @@ class UI:
             curses.curs_set(0)
             self.model_in_buffer = ""
     
+    def draw_search(self):
+        if not self.show_search:
+            return
+        self.search_win.clear()
+        self.search_win.border()
+        self.search_win.attron(curses.color_pair(6) | curses.A_BOLD)
+        self.search_win.addstr(0,2," search chats", curses.color_pair(6))
+        self.search_win.attroff(curses.color_pair(6) | curses.A_BOLD)
+        try:
+            self.search_win.addstr(2,2,"search for:", curses.color_pair(5))
+            self.search_win.addstr(3,2,"> ",curses.color_pair(2) | curses.A_BOLD)
+            display_text = self.search_in_buffer if self.search_in_buffer else "type to search..."
+            text_attr = curses.color_pair(5) if self.search_in_buffer else curses.color_pair(5) | curses.A_DIM
+            self.search_win.addstr(3,4,display_text[:62],text_attr)
+
+            if self.search_results:
+                self.search_win.addstr(5,2,f"found {len(self.search_results)} result(s):", curses.color_pair(4))
+                max_results = 10
+                for i, (chat_idx,snippet) in enumerate(self.search_results[:max_results]):
+                    if i + 7 >= 19:
+                        break
+                    chat_tl = self.chat_mgr.chats[chat_idx].get('title', 'New Chat')
+                    result_ln = f"{i+1}. {chat_tl[:30]}"
+                    try:
+                        self.search_win.addstr(i+7,2,result_ln[:66],curses.color_pair(2))
+                    except curses.error:
+                        pass
+                if len(self.search_results) > max_results:
+                    self.search_win.addstr(17,2,f"... and {len(self.search_results) - max_results} more",curses.color_pair(4) | curses.A_DIM)
+            elif self.search_in_buffer:
+                self.search_win.addstr(5,2,"no results found",curses.color_pair(4) | curses.A_DIM)
+            self.search_win.addstr(18,2,"ENTER to search, 1-9 to jump to result, ESC to cancel", curses.color_pair(4) | curses.A_DIM)
+        except curses.error:
+            pass
+        self.search_win.refresh()
+    
+    def get_search_in(self):
+        self.search_in_buffer = ""
+        self.search_results = []
+        curses.curs_set(1)
+        self.search_win.nodelay(False)
+        try:
+            while True:
+                self.search_win.move(3,4)
+                self.search_win.addstr(3,4," " * 62)
+                self.search_win.move(3,4)
+                if self.search_in_buffer:
+                    self.search_win.addstr(3,4,self.search_in_buffer[:62],curses.color_pair(5))
+                else:
+                    self.search_win.addstr(3,4,"type to search...",curses.color_pair(5) | curses.A_DIM)
+                cursor_pos = min(len(self.search_in_buffer),62)
+                self.search_win.move(3,4+cursor_pos)
+                self.search_win.refresh()
+                ch = self.search_win.getch()
+                if ch == 27:
+                    return None
+                elif ch == 10 or ch == curses.KEY_ENTER:
+                    if self.search_in_buffer:
+                        self.perf_search()
+                        self.draw_search()
+                elif ch >= ord('1') and ch <= ord('9'):
+                    result_num = ch - ord('1')
+                    if result_num < len(self.search_results):
+                        return self.search_results[result_num][0]
+                elif ch == curses.KEY_BACKSPACE or ch == 127 or ch == 8:
+                    if self.search_in_buffer:
+                        self.search_in_buffer = self.search_in_buffer[:-1]
+                        if self.search_in_buffer:
+                            self.perf_search()
+                        else:
+                            self.search_results = []
+                        self.draw_search()
+                elif 32 <= ch <= 126:
+                    if len(self.search_in_buffer) < 62:
+                        self.search_in_buffer += chr(ch)
+                        self.perf_search()
+                        self.draw_search()
+        except KeyboardInterrupt:
+            return None
+        finally:
+            curses.curs_set(0)
+            self.search_in_buffer = ""
+            self.search_results = []
+    
+    def perf_search(self):
+        query = self.search_in_buffer.lower()
+        self.search_results = []
+        for idx,chat in enumerate(self.chat_mgr.chats):
+            title = chat.get('title', '').lower()
+            if query in title:
+                self.search_results.append((idx,title[:50]))
+                continue
+            for msg in chat.get('messages', []):
+                content = msg.get('content','').lower()
+                if query in content:
+                    match_pos = content.find(query)
+                    start = max(0,match_pos - 20)
+                    end = min(len(content),match_pos + 30)
+                    snippet = content[start:end]
+                    self.search_results.append((idx,snippet))
+                    break
+    
+
+    
     def handle_scroll(self,direction):
         if not self.current_res:
             return
@@ -346,6 +457,8 @@ class UI:
             self.draw_help()
         if self.show_model_sel:
             self.draw_model_sel()
+        if self.show_search:
+            self.draw_search()
         curses.doupdate()
     
     def get_input(self):
@@ -467,6 +580,8 @@ class UI:
             return 'toggle_help'
         elif key == ord('n'):
             return 'new'
+        elif key == ord('f') or key == ord('F'):
+            return 'toggle_search'
         elif key == ord('m') or key == ord('M'):
             return 'toggle_model'
         elif key == ord('d'):
@@ -493,6 +608,7 @@ class UI:
             " - type '::model' to change model",
             " - type '::n' to make a new chat",
             " - type '::d' to delete the selected chat",
+            " - type '::search' or '::search <query>' to search",
             " - type '::help' for help",
             "",
             "navigation mode:",
@@ -505,6 +621,7 @@ class UI:
             " - d: delete selected chat",
             " - ESC: exit nav mode",
             " - h: show help window",
+            " - f: search through chats",
             " - q: quit shellLLM"
         ]
         for i, line in enumerate(help_txt, start=1):
@@ -655,6 +772,25 @@ def main_tui(stdscr):
                 else:
                     ui.status_msg = "model change cancelled"
                 ui.refresh_all()
+            elif action == 'toggle_search':
+                ui.show_search = True
+                ui.refresh_all()
+                sel_chat = ui.get_search_in()
+                ui.show_search = False
+                if sel_chat is not None:
+                    chat_mgr.cur_chat_idx = sel_chat
+                    curr_chat = chat_mgr.get_cur_chat()
+                    chat.convo_history = curr_chat.get('messages',[])
+                    ui.current_res = ""
+                    for msg in reversed(chat.convo_history):
+                        if msg['role'] == 'assistant':
+                            ui.current_res = msg['content']
+                            break
+                    ui.scroll_offset = 0
+                    ui.status_msg = f"jumped to chat: {curr_chat.get('title', 'New Chat')[:30]}"
+                else:
+                    ui.status_msg = "search cancelled"
+                ui.refresh_all()
             elif action == 'scroll':
                 ui.refresh_all()
             elif action == 'quit':
@@ -710,6 +846,30 @@ def main_tui(stdscr):
                 ui.status_msg = f"model changed to: {new_mdl}"
             else:
                 ui.status_msg = "model change cancelled"
+            ui.refresh_all()
+            continue
+        if user_input.lower().startswith('::search'):
+            ui.show_search = True
+            query_parts = user_input.split(' ',1)
+            if len(query_parts) > 1:
+                ui.search_in_buffer = query_parts[1]
+                ui.perf_search()
+            ui.refresh_all()
+            sel_chat = ui.get_search_in()
+            ui.show_search = False
+            if sel_chat is not None:
+                chat_mgr.cur_chat_idx = sel_chat
+                curr_chat = chat_mgr.get_cur_chat()
+                chat.convo_history = curr_chat.get('messages',[])
+                ui.current_res = ""
+                for msg in reversed(chat.convo_history):
+                    if msg['role'] == 'assistant':
+                        ui.current_res = msg['content']
+                        break
+                ui.scroll_offset = 0
+                ui.status_msg = f"jumped to chat: {curr_chat.get('title', 'New Chat')[:30]}"
+            else:
+                ui.status_msg = "search cancelled"
             ui.refresh_all()
             continue
         if user_input.lower() == '::help':
