@@ -150,7 +150,7 @@ class UI:
         self.chats_win = curses.newwin(self.height - 6, self.width // 3, 3, 0)
         self.input_win = curses.newwin(3, self.width, self.height - 3,0)
         self.res_win = curses.newwin(self.height - 6, (self.width * 2) // 3, 3,self.width //3)
-        self.help_win = curses.newwin(15,50,(self.height - 15)//2, (self.width - 50)//2)
+        self.help_win = curses.newwin(22,50,(self.height - 22)//2, (self.width - 50)//2)
         self.model_win = curses.newwin(7,60,(self.height - 7) // 2, (self.width - 60)//2)
         self.res_win.scrollok(True)
         self.chats_win.scrollok(True)
@@ -350,7 +350,7 @@ class UI:
     
     def get_input(self):
         self.input_buffer = ""
-        self.status_msg = "type a message and press enter, or type '::nav' to enter navigation mode. press 'h' in navigation mode for help."
+        self.status_msg = "type a message and press enter, or type '::nav' to enter navigation mode. type '::help' for help."
         max_in_width = self.width - 10
         view_offset = 0
         auto_scroll = True
@@ -490,9 +490,10 @@ class UI:
             " - type your message and press enter",
             " - type '::nav' to enter navigation mode",
             " - type '::clear' to clear chat history",
-            " - type '::model' to change model"
+            " - type '::model' to change model",
             " - type '::n' to make a new chat",
             " - type '::d' to delete the selected chat",
+            " - type '::help' for help",
             "",
             "navigation mode:",
             " - up/down arrow keys: navigate chats",
@@ -503,10 +504,11 @@ class UI:
             " - m: change model",
             " - d: delete selected chat",
             " - ESC: exit nav mode",
+            " - h: show help window",
             " - q: quit shellLLM"
         ]
         for i, line in enumerate(help_txt, start=1):
-            if i > 13:
+            if i > 20:
                 break
             try:
                 if line and not line.startswith(" "):
@@ -708,6 +710,14 @@ def main_tui(stdscr):
                 ui.status_msg = f"model changed to: {new_mdl}"
             else:
                 ui.status_msg = "model change cancelled"
+            ui.refresh_all()
+            continue
+        if user_input.lower() == '::help':
+            ui.show_help = True
+            ui.refresh_all()
+            ui.stdscr.nodelay(False)
+            ui.stdscr.getch()
+            ui.show_help = False 
             ui.refresh_all()
             continue
         try:
