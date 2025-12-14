@@ -345,20 +345,76 @@ class UI:
     
     def get_input(self):
         self.input_buffer = ""
-        self.status_msg = "type message, or type 'nav' for navigation mode. type 'h' whilst in nav mode for help."
-        self.draw_input()
-        curses.echo()
+        self.status_msg = "type a message and press enter, or type 'nav' to enter navigation mode. press 'h' in navigation mode for help."
+        max_in_width = self.width - 10
+        view_offset = 0
+        auto_scroll = True
         curses.curs_set(1)
         try:
-            self.input_win.move(1,7)
-            self.input_buffer = self.input_win.getstr(1,7,self.width - 10).decode('utf-8').strip()
+            while True:
+                cursor_pos = len(self.input_buffer)
+                vis_start = view_offset
+                vis_end = view_offset + max_in_width
+                vis_txt = self.input_buffer[vis_start:vis_end]
+                self.input_win.clear()
+                self.input_win.border()
+                try:
+                    self.input_win.addstr(0,2,f"{self.status_msg} ",curses.color_pair(4))
+                except curses.error:
+                    pass
+                prompt = "You: "
+                try:
+                    self.input_win.addstr(1,2,prompt,curses.color_pair(2)|curses.A_BOLD)
+                    self.input_win.addstr(1,7,vis_txt)
+                    if view_offset > 0:
+                        self.input_win.addstr(1,6,"<",curses.color_pair(4))
+                    if len(self.input_buffer) > vis_end:
+                        self.input_win.addstr(1,7 + len(vis_txt), ">",curses.color_pair(4))
+                except curses.error:
+                    pass
+                cursor_scr_pos = min(7 + len(vis_txt), 7 + max_in_width - 1)
+                self.input_win.move(1,cursor_scr_pos)
+                self.input_win.refresh()
+                ch = self.input_win.getch()
+                if ch == 10 or ch == curses.KEY_ENTER:
+                    break
+                elif ch == 27:
+                    self.input_win.nodelay(True)
+                    next_ch = self.input_win.getch()
+                    if next_ch == -1:
+                        self.input_win.nodelay(False)
+                        return None
+                    elif next_ch == ord('['):
+                        third_ch = self.input_win.getch()
+                        self.input_win.nodelay(False)
+                        if third_ch == ord('D'): # left arrow
+                            view_offset = max(0,view_offset - 10)
+                            auto_scroll = False
+                        elif third_ch == ord('C'): # right arrow
+                            max_offset = max(0,len(self.input_buffer) - max_in_width)
+                            view_offset = min(view_offset + 10,max_offset)
+                            if view_offset >= max_offset:
+                                auto_scroll = True
+                        continue
+                    else:
+                        self.input_win.nodelay(False)
+                        continue
+                elif ch == curses.KEY_BACKSPACE or ch == 127 or ch == 8:
+                    if len(self.input_buffer) > 0:
+                        self.input_buffer = self.input_buffer[:-1]
+                        if auto_scroll:
+                            view_offset = max(0,len(self.input_buffer) - max_in_width)
+                elif 32 <= ch <= 126:
+                    self.input_buffer += chr(ch)
+                    if auto_scroll:
+                        if len(self.input_buffer) > max_in_width:
+                            view_offset = len(self.input_buffer) - max_in_width
+            return self.input_buffer.strip()
         except KeyboardInterrupt:
             return None
         finally:
-            curses.noecho()
             curses.curs_set(0)
-        return self.input_buffer
-    
+         
     def show_streaming(self,msg_gen):
         self.current_res = ""
         self.status_msg = "AI is responding..."
