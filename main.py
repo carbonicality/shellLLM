@@ -703,10 +703,25 @@ def main_tui(stdscr):
     load_env()
     api_key = os.environ.get("API_KEY")
     if not api_key:
-        stdscr.addstr(0,0,"error: API_KEY not set in .env file")
-        stdscr.addstr(1,0,"press any key to exit...")
-        stdscr.getch()
-        return
+        stdscr.clear()
+        stdscr.addstr(0,0,"API_KEY not found in environment or .env file", curses.A_BOLD)
+        stdscr.addstr(2,0,"please enter your API key:")
+        stdscr.addstr(3,0,"> ")
+        stdscr.refresh()
+        curses.echo()
+        curses.curs_set(1)
+        api_key_in = stdscr.getstr(3,2,100).decode('utf-8').strip()
+        curses.noecho()
+        curses.curs_set(0)
+        if not api_key_in:
+            stdscr.clear()
+            stdscr.addstr(0,0,"no api key provided.")
+            stdscr.addstr(1,0,"press any key to exit...")
+            stdscr.getch()
+            return
+        os.environ["API_KEY"] = api_key_in
+        api_key = api_key_in
+        stdscr.clear()
     try:
         chat_mgr = chatMgr()
         chat = mainChat(api_key, model="openai/gpt-5.1")
