@@ -5,6 +5,8 @@ import sys
 from datetime import datetime
 import curses
 import textwrap
+import base64
+import mimetypes
 
 def load_env():
     env_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -64,13 +66,40 @@ class mainChat:
         self.base_url = base_url
         self.model = model
         self.convo_history = []
+        self.attached_files = []
     
-    def send_msg(self, user_msg, stream=True):
-        self.convo_history.append({
-            "role": "user",
-            "content": user_msg
-        })
-        
+    def send_msg(self,user_msg,stream=True):
+        if self.attached_files:
+            for f in self.attached_files:
+                if f['type'] == 'text':
+                    file_context = f"\n\n--- file: {f['name']} --- \n{f['content']}\n--- end of {f['name']} --- \n"
+                    user_msg = file_context + user_msg
+            has_imgs = any(f['type'] == 'image' for f in self.attached_files)
+            if has_imgs:
+                content_parts = [{"type":"text","text":user_msg}]
+                for f in self.attached_files:
+                    if f['type'] == 'image':
+                        content_parts.append({
+                            "type":"image_url",
+                            "image_url": {
+                                "url": f"data:{f['mime_type']};base64,{f['content']}"
+                            }
+                        })
+                self.convo_history.append({
+                    "role": "user",
+                    "content": content_parts
+                })
+            else:
+                self.convo_history.append({
+                    "role": "user",
+                    "content": user_msg
+                })
+            self.clear_attch()
+        else:
+            self.convo_history.append({
+                "role": "user",
+                "content": user_msg
+            })
         if stream:
             return self._stream_res()
         else:
@@ -135,6 +164,46 @@ class mainChat:
         else:
             return self._get_res()
 
+    def attach_file(self,filepath):
+        file_type,mime_type = fileHandler.get_file_type(filepath)
+        if file_type == 'unknown':
+            return False, "unsupported file type :("
+        if file_type == 'text':
+            content = fileHandler.read_tfile(filepath)
+            if content is None:
+                return False, "couldn't read file"
+            self.attached_files.append({
+                'type': 'text',
+                'filepath': filepath,
+                'content': content,
+                'name': os.path.basename(filepath)
+            })
+            return True, f"attached text file: {os.path.basename(filepath)}"
+        elif file_type == 'image':
+            content = fileHandler.read_img_file(filepath)
+            if content is None:
+                return False, "couldn't read image"
+            self.attached_files.append({
+                'type': 'image',
+                'filepath': filepath,
+                'content': content,
+                'mime_type': mime_type,
+                'name': os.path.basename(filepath)
+            })
+            return True, f"attached image: {os.path.basename(filepath)}"
+        return False, "unknown error" # uh oh.
+    
+    def clear_attch(self):
+        self.attached_files = []
+    
+    def get_attch_sum(self):
+        if not self.attached_files:
+            return "no files attached"
+        summary = []
+        for f in self.attached_files:
+            summary.append(f"{f['name']} ({f['type']})")
+        return ", ".join(summary)
+
 class UI:
     def __init__(self,stdscr,chat,chat_mgr):
         self.stdscr = stdscr
@@ -151,6 +220,9 @@ class UI:
         self.show_help = False
         self.show_model_sel = False
         self.model_in_buffer = ""
+
+        self.show_file_atch = False 
+        self.file_path_buffer = ""
 
         self.show_search = False
         self.search_in_buffer = ""
@@ -171,6 +243,7 @@ class UI:
         self.help_win = curses.newwin(30,60,(self.height - 30)//2, (self.width - 60)//2)
         self.model_win = curses.newwin(7,60,(self.height - 7) // 2, (self.width - 60)//2)
         self.search_win = curses.newwin(20,70,(self.height - 20) // 2, (self.width - 70)//2)
+        self.file_win = curses.newwin(10,70,(self.height - 10) //2, (self.width - 70) // 2)
         self.stats_win = curses.newwin(20,70,(self.height - 20) //2, (self.width - 70) //2)
 
         self.res_win.scrollok(True)
@@ -474,6 +547,8 @@ class UI:
         curses.doupdate()
         if self.show_stats:
             self.draw_stats()
+        if self.show_file_atch:
+            self.draw_file_atch()
     
     def get_input(self):
         self.input_buffer = ""
@@ -612,6 +687,8 @@ class UI:
             return 'toggle_model'
         elif key == ord('d'):
             return 'delete'
+        elif key == ord('a') or key == ord('A'):
+            return 'attach_file'
         elif key == 27:
             return 'exit_nav'
         elif key == ord('q'):
@@ -637,6 +714,8 @@ class UI:
             " - type '::search' or '::search <query>' to search",
             " - type '::regen' to regenerate last response",
             " - type '::stats' to view convo stats (wrapped fr)",
+            " - type '::attach' or '::a' to attach a file",
+            " - type '::clear-attach' to clear attachments",
             " - type '::help' for help",
             "",
             "navigation mode:",
@@ -650,6 +729,7 @@ class UI:
             " - ESC: exit nav mode",
             " - h: show help window",
             " - f: search through chats",
+            " - a: attach file",
             " - r: regenerate last response",
             " - i: show convo stats (wrapped fr)",
             " - u/p keys: navigate through response history",
@@ -726,6 +806,69 @@ class UI:
         except curses.error:
             pass
         self.stats_win.refresh()
+    
+    def draw_file_atch(self):
+        if not self.show_file_atch:
+            return
+        self.file_win.clear()
+        self.file_win.border()
+        self.file_win.attron(curses.color_pair(6) | curses.A_BOLD)
+        self.file_win.addstr(0,2," attach file ",curses.color_pair(6))
+        self.file_win.attroff(curses.color_pair(6) | curses.A_BOLD)
+        try:
+            self.file_win.addstr(2,2,"enter file path:",curses.color_pair(5))
+            self.file_win.addstr(3,2,"> ",curses.color_pair(2) | curses.A_BOLD)
+            display_text = self.file_path_buffer if self.file_path_buffer else "/path/to/file.txt"
+            text_attr = curses.color_pair(5) if self.file_path_buffer else curses.color_pair(5) | curses.A_DIM
+            self.file_win.addstr(3,4,display_text[:62],text_attr)
+            if self.chat.attached_files:
+                self.file_win.addstr(5,2,"attached files:",curses.color_pair(4))
+                for i,f in enumerate(self.chats.attached_files[:3]):
+                    self.file_win.addstr(6+i, 4,f"- {f['name']} ({f['type']})",curses.color_pair(2))
+            self.file_win.addstr(8,2,"ENTER: attach, ESC: cancel, ctrl+c: clear all",curses.color_pair(4) | curses.A_DIM)
+        except curses.error:
+            pass
+        self.file_win.refresh()
+    
+    def get_ftch_input(self):
+        self.file_path_buffer = ""
+        curses.curs_set(1)
+        self.file_win.nodelay(False)
+        try:
+            while True:
+                self.file_win.move(3,4)
+                self.file_win.addstr(3,4," " * 62)
+                self.file_win.move(3,4)
+                if self.file_path_buffer:
+                    self.file_win.addstr(3,4,self.file_path_buffer[:62],curses.color_pair(5))
+                else:
+                    self.file_win.addstr(3,4,"path/to/file.txt",curses.color_pair(5) | curses.A_DIM)
+                cursor_pos = min(len(self.file_path_buffer),62)
+                self.file_win.move(3,4 + cursor_pos)
+                self.file_win.refresh()
+                ch = self.file_win.getch()
+                if ch == 27:
+                    return None
+                elif ch == 10 or ch == curses.KEY_ENTER:
+                    if self.file_path_buffer:
+                        exp_path = os.path.expanduser(self.file_path_buffer)
+                        return exp_path
+                    return None
+                elif ch == 3:
+                    self.chat.clear_attch()
+                    self.file_path_buffer = ""
+                    self.draw_file_atch()
+                elif ch == curses.KEY_BACKSPACE or ch == 127 or ch == 8:
+                    if self.file_path_buffer:
+                        self.file_path_buffer = self.file_path_buffer[:-1]
+                elif 32 <= ch <= 126:
+                    if len(self.file_path_buffer) < 62:
+                        self.file_path_buffer += chr(ch)
+        except KeyboardInterrupt:
+            return None
+        finally:
+            curses.curs_set(0)
+            self.file_path_buffer = ""
     
     def nav_msgs(self,dir):
         if not self.chat.convo_history:
@@ -814,8 +957,36 @@ class chatMgr:
             self.save_chats()
             return True
         return False
-    
 
+class fileHandler:
+    @staticmethod
+    def read_tfile(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return f.read()
+        except (UnicodeDecodeError, FileNotFoundError):
+            return None
+        
+    @staticmethod
+    def read_img_file(filepath):
+        try:
+            with open(filepath, 'rb') as f:
+                return base64.b64encode(f.read()).decode('utf-8')
+        except FileNotFoundError:
+            return None
+    
+    @staticmethod
+    def get_file_type(filepath):
+        mime_type, _ = mimetypes.guess_type(filepath)
+        if mime_type:
+            if mime_type.startswith('image/'):
+                return 'image', mime_type
+            elif mime_type.startswith('text/'):
+                return 'text', mime_type
+        if filepath.endswith(('.py', '.js', '.java', '.cpp', '.c', '.h', '.css', '.html', '.json', '.xml', '.yml', '.yaml', '.md', '.txt', '.log', '.sh', '.bash', '.rs', '.go', '.ts', '.jsx', '.tsx', '.vue', '.sql')): # i asked AI to give me all the file type extensions
+            return 'text','text/plain'
+        return 'unknown', None
+    
 def main_tui(stdscr):
     curses.curs_set(0)
     stdscr.clear()
@@ -928,6 +1099,17 @@ def main_tui(stdscr):
                 ui.refresh_all()
             elif action == 'msg_nav':
                 ui.refresh_all()
+            elif action == 'attach_file':
+                ui.show_file_atch = True
+                ui.refresh_all()
+                filepath = ui.get_ftch_input()
+                ui.show_file_atch = False
+                if filepath:
+                    success,message = chat.attach_file(filepath)
+                    ui.status_msg = message
+                else:
+                    ui.status_msg = "file attachment cancelled"
+                ui.refresh_all()
             elif action == 'regen':
                 if len(chat.convo_history) >= 2:
                     ui.status_msg = "regenerating..."
@@ -1029,6 +1211,23 @@ def main_tui(stdscr):
                 ui.status_msg = f"jumped to chat: {curr_chat.get('title', 'New Chat')[:30]}"
             else:
                 ui.status_msg = "search cancelled"
+            ui.refresh_all()
+            continue
+        if user_input.lower() in ['::attach', '::a']:
+            ui.show_file_atch = True
+            ui.refresh_all()
+            filepath = ui.get_ftch_input()
+            ui.show_file_atch = False
+            if filepath:
+                success,message = chat.attach_file(filepath)
+                ui.status_msg = message
+            else:
+                ui.status_msg = "file attachment cancelled"
+            ui.refresh_all()
+            continue
+        if user_input.lower() == '::clear-attach':
+            chat.clear_attch()
+            ui.status_msg = "cleared all attachments"
             ui.refresh_all()
             continue
         if user_input.lower() == '::help':
