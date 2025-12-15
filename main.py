@@ -240,7 +240,7 @@ class UI:
         self.chats_win = curses.newwin(self.height - 6, self.width // 3, 3, 0)
         self.input_win = curses.newwin(3, self.width, self.height - 3,0)
         self.res_win = curses.newwin(self.height - 6, (self.width * 2) // 3, 3,self.width //3)
-        self.help_win = curses.newwin(30,60,(self.height - 30)//2, (self.width - 60)//2)
+        self.help_win = curses.newwin(32,60,(self.height - 32)//2, (self.width - 60)//2)
         self.model_win = curses.newwin(7,60,(self.height - 7) // 2, (self.width - 60)//2)
         self.search_win = curses.newwin(20,70,(self.height - 20) // 2, (self.width - 70)//2)
         self.file_win = curses.newwin(10,70,(self.height - 10) //2, (self.width - 70) // 2)
@@ -736,7 +736,7 @@ class UI:
             " - q: quit shellLLM"
         ]
         for i, line in enumerate(help_txt, start=1):
-            if i > 28:
+            if i > 30:
                 break
             try:
                 if line and not line.startswith(" "):
