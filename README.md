@@ -1,5 +1,13 @@
 # shellLLM
-i'll add actual readme stuff here eventually
+## what is shellLLM?
+shellLLM is an application built in Python which essentially acts as a 'frontend' to talk to an AI, using an API key. i built this application with Hack Club API keys in mind.
+
+this project was built for the Hack Club dummies YSWS, and I made this so that I can practice and improve my python skills.
+
+you'll need to provide an API key yourself to use this.
+you can get help on how to use it by typing '::help' or '::nav' and then pressing 'h'.
+
+thanks for reading!
 
 ## online demo:
 try the online demo at:
