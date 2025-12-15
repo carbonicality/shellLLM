@@ -124,6 +124,16 @@ class mainChat:
     
     def get_msgs(self):
         return self.convo_history
+    
+    def regen_last(self,stream=True):
+        if len(self.convo_history) < 2:
+            return None
+        if self.convo_history[-1]['role'] == 'assistant':
+            self.convo_history.pop()
+        if stream:
+            return self._stream_res()
+        else:
+            return self._get_res()
 
 class UI:
     def __init__(self,stdscr,chat,chat_mgr):
@@ -134,6 +144,9 @@ class UI:
         self.input_buffer = ""
         self.status_msg = "Ready"
         self.scroll_offset = 0
+
+        self.show_stats = False
+        self.v_msg_idx = -1
 
         self.show_help = False
         self.show_model_sel = False
@@ -155,9 +168,10 @@ class UI:
         self.chats_win = curses.newwin(self.height - 6, self.width // 3, 3, 0)
         self.input_win = curses.newwin(3, self.width, self.height - 3,0)
         self.res_win = curses.newwin(self.height - 6, (self.width * 2) // 3, 3,self.width //3)
-        self.help_win = curses.newwin(22,60,(self.height - 22)//2, (self.width - 60)//2)
+        self.help_win = curses.newwin(30,60,(self.height - 30)//2, (self.width - 60)//2)
         self.model_win = curses.newwin(7,60,(self.height - 7) // 2, (self.width - 60)//2)
         self.search_win = curses.newwin(20,70,(self.height - 20) // 2, (self.width - 70)//2)
+        self.stats_win = curses.newwin(20,70,(self.height - 20) //2, (self.width - 70) //2)
 
         self.res_win.scrollok(True)
         self.chats_win.scrollok(True)
@@ -402,8 +416,6 @@ class UI:
                     self.search_results.append((idx,snippet))
                     break
     
-
-    
     def handle_scroll(self,direction):
         if not self.current_res:
             return
@@ -460,6 +472,8 @@ class UI:
         if self.show_search:
             self.draw_search()
         curses.doupdate()
+        if self.show_stats:
+            self.draw_stats()
     
     def get_input(self):
         self.input_buffer = ""
@@ -551,12 +565,20 @@ class UI:
             if self.chat_mgr.cur_chat_idx > 0:
                 self.chat_mgr.cur_chat_idx -= 1
                 self.chat_mgr.save_chats()
+                self.v_msg_idx = -1
                 return 'switch'
         elif key == curses.KEY_DOWN:
             if self.chat_mgr.cur_chat_idx < len(self.chat_mgr.chats) -1:
                 self.chat_mgr.cur_chat_idx += 1
                 self.chat_mgr.save_chats()
+                self.v_msg_idx = -1
                 return 'switch'
+        elif key == ord('u') or key == ord('U'):
+            self.nav_msgs('up')
+            return 'msg_nav'
+        elif key == ord('p') or key == ord('P'):
+            self.nav_msgs('down')
+            return 'msg_nav'
         elif key == ord('j') or key == ord('J'):
             self.handle_scroll('down')
             return 'scroll'
@@ -575,6 +597,10 @@ class UI:
         elif key == ord('G'):
             self.handle_scroll('end')
             return 'scroll'
+        elif key == ord('r') or key == ord('R'):
+            return 'regen'
+        elif key == ord('i') or key == ord('I'):
+            return 'toggle_stats'
         elif key == ord('h') or key == ord('H'):
             self.show_help = not self.show_help
             return 'toggle_help'
@@ -609,6 +635,8 @@ class UI:
             " - type '::n' to make a new chat",
             " - type '::d' to delete the selected chat",
             " - type '::search' or '::search <query>' to search",
+            " - type '::regen' to regenerate last response",
+            " - type '::stats' to view convo stats (wrapped fr)",
             " - type '::help' for help",
             "",
             "navigation mode:",
@@ -622,10 +650,13 @@ class UI:
             " - ESC: exit nav mode",
             " - h: show help window",
             " - f: search through chats",
+            " - r: regenerate last response",
+            " - i: show convo stats (wrapped fr)",
+            " - u/p keys: navigate through response history",
             " - q: quit shellLLM"
         ]
         for i, line in enumerate(help_txt, start=1):
-            if i > 20:
+            if i > 28:
                 break
             try:
                 if line and not line.startswith(" "):
@@ -635,6 +666,94 @@ class UI:
             except curses.error:
                 pass
         self.help_win.refresh()
+    
+    def draw_stats(self):
+        if not self.show_stats:
+            return
+        self.stats_win.clear()
+        self.stats_win.border()
+        self.stats_win.attron(curses.color_pair(6) | curses.A_BOLD)
+        self.stats_win.addstr(0,2," conversation stats (wrapped?) ",curses.color_pair(6))
+        self.stats_win.attroff(curses.color_pair(6) | curses.A_BOLD)
+        t_chats = len(self.chat_mgr.chats)
+        t_msgs = sum(len(chat.get('messages',[])) for chat in self.chat_mgr.chats)
+        t_user_msgs = sum(len([m for m in chat.get('messages',[]) if m['role'] == 'user']) for chat in self.chat_mgr.chats)
+        t_ai_msgs = sum(len([m for m in chat.get('messages',[]) if m['role'] == 'assistant']) for chat in self.chat_mgr.chats)
+        avg_msgs = t_msgs / t_chats if t_chats > 0 else 0
+        most_active = max(self.chat_mgr.chats,key=lambda c:len(c.get('messages',[])), default=None)
+        most_active_title = most_active.get('title','N/A')[:40] if most_active else 'N/A'
+        most_active_count = len(most_active.get('messages',[])) if most_active else 0
+        sorted_chats = sorted([c for c in self.chat_mgr.chats if c.get('timestamp')],key=lambda c: c.get('timestamp',''))
+        oldest = sorted_chats[0] if sorted_chats else None
+        newest = sorted_chats[-1] if sorted_chats else None
+        stats_txt = [
+            f"total chats: {t_chats}",
+            f"total messages: {t_msgs}",
+            f" - user messages: {t_user_msgs}",
+            f" - AI messages: {t_ai_msgs}",
+            f"average messages per chat: {avg_msgs:.1f}",
+            "",
+            f"most active chat:",
+            f"  {most_active_title}",
+            f"  ({most_active_count} messages)",
+            "",
+            f"current model: {self.chat.model}"
+        ]
+        if oldest:
+            oldest_date = oldest.get('timestamp','')[:10]
+            stats_txt.extend([
+                "",
+                f"oldest chat: {oldest_date}"
+            ])
+        if newest and newest != oldest:
+            newest_date = newest.get('timestamp','')[:10]
+            stats_txt.append(f"newest chat: {newest_date}")
+        for i, line in enumerate(stats_txt,start=2):
+            if i > 17:
+                break
+            try:
+                if ':' in line and not line.startswith(' '):
+                    parts = line.split(':',1)
+                    self.stats_win.addstr(i,2,parts[0] + ':',curses.color_pair(2) | curses.A_BOLD)
+                    if len(parts) > 1:
+                        self.stats_win.addstr(parts[1],curses.color_pair(5))
+                else:
+                    self.stats_win.addstr(i,2,line,curses.color_pair(5))
+            except curses.error:
+                pass
+        try:
+            self.stats_win.addstr(18,2,"press any key to close", curses.color_pair(4) | curses.A_DIM)
+        except curses.error:
+            pass
+        self.stats_win.refresh()
+    
+    def nav_msgs(self,dir):
+        if not self.chat.convo_history:
+            return 
+        ai_msgs = [(i,msg) for i,msg in enumerate(self.chat.convo_history) if msg['role'] == 'assistant']
+        if not ai_msgs:
+            return
+        if self.v_msg_idx == -1:
+            if dir == 'up':
+                self.v_msg_idx = len(ai_msgs) - 1
+        else:
+            if dir == 'up':
+                self.v_msg_idx = max(0,self.v_msg_idx - 1)
+            elif dir == 'down':
+                self.v_msg_idx += 1 
+                if self.v_msg_idx >= len(ai_msgs):
+                    self.v_msg_idx = -1
+        if self.v_msg_idx == -1:
+            for msg in reversed(self.chat.convo_history):
+                if msg['role'] == 'assistant':
+                    self.current_res = msg['content']
+                    break
+            self.status_msg = "viewing latest message"
+        else:
+            actual_idx,msg = ai_msgs[self.v_msg_idx]
+            self.current_res = msg['content']
+            self.status_msg = f"viewing message {self.v_msg_idx + 1}/{len(ai_msgs)} (up/down arrow keys to navigate)"
+        self.scroll_offset = 0
 
 class chatMgr:
     def __init__(self):
@@ -744,6 +863,7 @@ def main_tui(stdscr):
                 curr_chat = chat_mgr.get_cur_chat()
                 chat.convo_history = curr_chat.get('messages',[])
                 ui.current_res = ""
+                ui.v_msg_idx = -1
                 for msg in reversed(chat.convo_history):
                     if msg['role'] == 'assistant':
                         ui.current_res = msg['content']
@@ -805,6 +925,30 @@ def main_tui(stdscr):
                     ui.status_msg = f"jumped to chat: {curr_chat.get('title', 'New Chat')[:30]}"
                 else:
                     ui.status_msg = "search cancelled"
+                ui.refresh_all()
+            elif action == 'msg_nav':
+                ui.refresh_all()
+            elif action == 'regen':
+                if len(chat.convo_history) >= 2:
+                    ui.status_msg = "regenerating..."
+                    ui.refresh_all()
+                    try:
+                        res_gen = chat.regen_last(stream=True)
+                        if res_gen:
+                            ui.show_streaming(res_gen)
+                            ui.scroll_offset = 0
+                            chat_mgr.upd_cur_chat(chat.convo_history)
+                            ui.status_msg = "response generated"
+                        else:
+                            ui.status_msg = "no message to regenerate"
+                    except Exception as e:
+                        ui.status_msg = "no message to regenerate"
+                    ui.refresh_all()
+            elif action == 'toggle_stats':
+                ui.show_stats = True
+                ui.refresh_all()
+                ui.stdscr.getch()
+                ui.show_stats = False 
                 ui.refresh_all()
             elif action == 'scroll':
                 ui.refresh_all()
@@ -895,10 +1039,38 @@ def main_tui(stdscr):
             ui.show_help = False 
             ui.refresh_all()
             continue
+        if user_input.lower() == '::regen':
+            if len(chat.convo_history) >= 2:
+                ui.status_msg = "regenerating..."
+                ui.refresh_all()
+                try:
+                    res_gen = chat.regen_last(stream=True)
+                    if res_gen:
+                        ui.show_streaming(res_gen)
+                        ui.scroll_offset = 0
+                        chat_mgr.upd_cur_chat(chat.convo_history)
+                        ui.status_msg = "response regenerated"
+                    else:
+                        ui.status_msg = "no message to regenerate"
+                except Exception as e:
+                    ui.status_msg = f"regeneration error: {str(e)}"
+            else:
+                ui.status_msg = "no message to regenerate"
+            ui.refresh_all()
+            continue
+        if user_input.lower() == '::stats':
+            ui.show_stats = True
+            ui.refresh_all()
+            ui.stdscr.nodelay(False)
+            ui.stdscr.getch()
+            ui.show_stats = False 
+            ui.refresh_all()
+            continue
         try:
             res_gen = chat.send_msg(user_input,stream=True)
             ui.show_streaming(res_gen)
             ui.scroll_offset = 0
+            ui.v_msg_idx = -1
             chat_mgr.upd_cur_chat(chat.convo_history)
             ui.refresh_all()
         except Exception as e:
