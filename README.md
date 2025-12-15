@@ -13,8 +13,10 @@ thanks for reading!
 try the online demo at:
 https://replit.com/@carbon06/shellLLM
 
-make sure that, when you run it, you click "+ Tools and files", use the "Shell" option, and type:
-`python3 main.py`
+to use the online demo:
+1. click the run button so that it installs dependencies (ignore the error in Console)
+2. press '+ Tools and files', and search Shell, and click Shell
+3. type 'python3 main.py', and there you go! you're running shellLLM!
 
 ## usage
 first clone the repo:
